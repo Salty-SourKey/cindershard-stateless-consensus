@@ -1,0 +1,393 @@
+package config
+
+import (
+	"bufio"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"unishard/log"
+	"unishard/types"
+	"unishard/utils"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+)
+
+const path = "../common/"
+
+var configFile = flag.String("config", "config.json", "Configuration file for bamboo replica. Defaults to config.json.")
+var ipsFile = flag.String("ips", "ips.txt", "Ips for validators nodes. Defaults to ips.txt")
+var baseIpsFile = flag.String("baseIPs", "base_ips.txt", "Ips for base chain validators nodes. Defaults to ips.txt")
+
+// Config contains every system configuration
+type Config struct {
+	Addrs     map[types.Shard]map[types.NodeID]string `json:"address"`      // address for node communication
+	HTTPAddrs map[types.NodeID]string                 `json:"http_address"` // address for client server communication
+
+	Policy    string  `json:"policy"`    // leader change policy {consecutive, majority}
+	Threshold float64 `json:"threshold"` // threshold for policy in WPaxos {n consecutive or time interval in ms}
+
+	Thrifty           bool         `json:"thrifty"`          // only send messages to a quorum
+	BufferSize        int          `json:"buffer_size"`      // buffer size for maps
+	ChanBufferSize    int          `json:"chan_buffer_size"` // buffer size for channels
+	MultiVersion      bool         `json:"multiversion"`     // create multi-version database
+	Timeout           int          `json:"timeout"`
+	ViewChangeTimeout int          `json:"viewchange_timeout"`
+	ByzNo             int          `json:"byzNo"`
+	BSize             int          `json:"bsize"`
+	Fixed             bool         `json:"fixed"`
+	Benchmark         Bconfig      `json:"benchmark"` // benchmark configuration
+	Delta             int          `json:"delta"`     // timeout, seconds
+	Pprof             bool         `json:"pprof"`
+	MaxRound          int          `json:"maxRound"`
+	Strategy          string       `json:"strategy"`
+	PayloadSize       int          `json:"payload_size"`
+	Master            types.NodeID `json:"master"`
+	Delay             int          `json:"delay"` // transmission delay in ms
+	DErr              int          `json:"derr"`  // the err taken into delays
+	MemSize           int          `json:"memsize"`
+	Slow              int          `json:"slow"`
+	Crash             int          `json:"crash"`
+
+	ShardCount       int    `json:"shard_count"`
+	DefaultBalance   int    `json:"default_balance"`
+	ClientNumber     int    `json:"client_number"`
+	ViewChangePeriod int    `json:"viewchange_period"`
+	CommitteeNumber  int    `json:"committee_number"`
+	ValidatorNumber  int    `json:"validator_number"`
+	RotatingElection string `json:"rotating_election"`
+	InShardLatency   int    `json:"inshardlatency"`
+	Shard01Latency   int    `json:"shard01latency"`
+	Shard02Latency   int    `json:"shard02latency"`
+	Shard03Latency   int    `json:"shard03latency"`
+	Shard04Latency   int    `json:"shard04latency"`
+	Epoch            int    `json:"epoch"`
+
+	CoordinationShardBlockbuilderAddress string `json:"coordination_builder_address"`
+
+	hasher string
+	signer string
+
+	// for future implementation
+	// Batching bool `json:"batching"`
+	// Consistency string `json:"consistency"`
+	// Codec string `json:"codec"` // codec for message serialization between nodes
+
+	n     int // total number of nodes
+	nBase int // total number of nodes of base shard
+	// z   int         // total number of zones
+	// npz map[int]int // nodes per zone
+
+	// for distribution logging
+	NatsServerUrl string `json:"nats_server"`
+
+	// for Fault Test
+	Mode      string `json:"mode"`       // mode for fault test, e.g., "change_blockBuilder", "change_committee"
+	Period    int    `json:"period"`     // period for fault test, e.g., 10 seconds
+	BlockSize int    `json:"block_size"` // block size for fault test, e.g., 2000 transactions
+}
+
+// var keys []crypto.PrivateKey
+// var pubKeys []crypto.PublicKey
+
+// Bconfig holds all benchmark configuration
+type Bconfig struct {
+	T            int    // total number of running time in seconds
+	N            int    // total number of requests
+	K            int    // key sapce
+	Throttle     int    // requests per second throttle, unused if 0
+	Concurrency  int    // number of simulated clients
+	Distribution string // distribution
+	// rounds       int    // repeat in many rounds sequentially
+
+	// conflict distribution
+	Conflicts int // percentage of conflicting keys
+	Min       int // min key
+
+	// normal distribution
+	Mu    float64 // mu of normal distribution
+	Sigma float64 // sigma of normal distribution
+	Move  bool    // moving average (mu) of normal distribution
+	Speed int     // moving speed in milliseconds intervals per key
+
+	TXRatioPerType []int
+	ZipfTheta      float64
+}
+
+type CAwithExternalAddress struct {
+	CA                  common.Address
+	ExternalAddressList []common.Address
+}
+
+// Config is global configuration singleton generated by init() func below
+var Configuration Config
+
+func GetAddresses() []*common.Address {
+	addresses, err := os.ReadFile("../common/address.txt")
+	if err != nil {
+		panic(err)
+	}
+	addressesInString := strings.Split(string(addresses), "\n")
+	addressArray := make([]*common.Address, 0)
+	for i := 0; i < len(addressesInString); i++ {
+		stringtoaddress := common.HexToAddress(addressesInString[i])
+		addressArray = append(addressArray, &stringtoaddress)
+	}
+	return addressArray
+}
+
+// GetConfig returns paxi package configuration
+func GetConfig() Config {
+	return Configuration
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+// GetCA returns contract address for train, hotel, travel contract
+func GetCA() (trainCAs, hotelCAs, travelCAs [][]common.Address) {
+	trainCAs = make([][]common.Address, 0)
+	hotelCAs = make([][]common.Address, 0)
+	travelCAs = make([][]common.Address, 0)
+
+	dir := "../common/ca/" + strconv.Itoa(Configuration.ShardCount) + "/"
+
+	for i := 1; i <= Configuration.ShardCount; i++ {
+		for j := 1; j <= Configuration.ShardCount; j++ {
+			trainCA, err := os.ReadFile(dir + "shard" + strconv.Itoa(j) + "_trainCA.txt")
+			check(err)
+			for _, ca := range strings.Split(string(trainCA), "\n") {
+				trainCA := make([]common.Address, 0)
+				trainCA = append(trainCA, common.HexToAddress(ca))
+				trainCAs = append(trainCAs, trainCA)
+			}
+			trainCA, err = os.ReadFile(dir + "shard" + strconv.Itoa(j) + "_crosstrainCA.txt")
+			check(err)
+			for _, ca := range strings.Split(string(trainCA), "\n") {
+				trainCA := make([]common.Address, 0)
+				trainCA = append(trainCA, common.HexToAddress(ca))
+				trainCAs = append(trainCAs, trainCA)
+			}
+
+			hotelCA, err := os.ReadFile(dir + "shard" + strconv.Itoa(j) + "_hotelCA.txt")
+			check(err)
+			for _, ca := range strings.Split(string(hotelCA), "\n") {
+				hotelCA := make([]common.Address, 0)
+				hotelCA = append(hotelCA, common.HexToAddress(ca))
+				hotelCAs = append(hotelCAs, hotelCA)
+			}
+			hotelCA, err = os.ReadFile(dir + "shard" + strconv.Itoa(j) + "_crosshotelCA.txt")
+			check(err)
+			for _, ca := range strings.Split(string(hotelCA), "\n") {
+				hotelCA := make([]common.Address, 0)
+				hotelCA = append(hotelCA, common.HexToAddress(ca))
+				hotelCAs = append(hotelCAs, hotelCA)
+			}
+
+			travelCA, err := os.ReadFile(dir + "shard" + strconv.Itoa(i) + "_normalTravelCA.txt")
+			check(err)
+			for _, ca := range strings.Split(string(travelCA), "\n") {
+				cas := make([]common.Address, 0)
+				for _, ca := range strings.Split(ca, ",") {
+					cas = append(cas, common.HexToAddress(ca))
+				}
+				travelCAs = append(travelCAs, cas)
+			}
+
+			travelCA, err = os.ReadFile(dir + "shard" + strconv.Itoa(i) + "_crossShardTravelCA.txt")
+			check(err)
+			for _, ca := range strings.Split(string(travelCA), "\n") {
+				cas := make([]common.Address, 0)
+				for _, ca := range strings.Split(ca, ",") {
+					cas = append(cas, common.HexToAddress(ca))
+				}
+				travelCAs = append(travelCAs, cas)
+			}
+		}
+	}
+	return trainCAs, hotelCAs, travelCAs
+}
+
+func GetRwSet(contractName string) map[string]types.RwSet {
+	var rwSetJSON []types.RwData
+	rwSet := make(map[string]types.RwSet)
+	rwSetFile, err := os.ReadFile("../common/contracts/" + contractName + "/rwSet.json")
+	if err != nil {
+		panic(err)
+	}
+	err = json.Unmarshal(rwSetFile, &rwSetJSON)
+	check(err)
+
+	for _, rwData := range rwSetJSON {
+		rwSet[rwData.FunctionSelector] = types.RwSet{
+			ReadSet:     rwData.ReadSet,
+			WriteSet:    rwData.WriteSet,
+			ExternalSet: rwData.ExternalRweSet,
+		}
+	}
+	return rwSet
+}
+
+func GetAbi() abi.ABI {
+	abiFile, _ := os.ReadFile(("../common/contracts/travel/travel.abi"))
+	abiObj, _ := abi.JSON(strings.NewReader(string(abiFile)))
+	return abiObj
+}
+
+func GetTravelCA(caType string, shard types.Shard) []CAwithExternalAddress {
+	travelCAwithExternalAddress := make([]CAwithExternalAddress, 0)
+	shardNum := Configuration.ShardCount
+	dir := "../common/ca/" + strconv.Itoa(shardNum) + "/"
+
+	travelCAs, err := os.ReadFile(dir + "shard" + strconv.Itoa(int(shard)) + "_" + caType + "TravelCA.txt")
+	check(err)
+	travelCAArray := strings.Split(string(travelCAs), "\n")
+
+	for i := 0; i < len(travelCAArray); i++ {
+		travelCA := strings.Split(travelCAArray[i], ",")
+		travelCAwithExternalAddress = append(travelCAwithExternalAddress, CAwithExternalAddress{
+			CA:                  common.HexToAddress(travelCA[0]),
+			ExternalAddressList: []common.Address{common.HexToAddress(travelCA[1]), common.HexToAddress(travelCA[2]), common.HexToAddress(travelCA[1]), common.HexToAddress(travelCA[2])},
+		})
+	}
+	return travelCAwithExternalAddress
+}
+
+// N returns total number of nodes
+func (c Config) NBase() int {
+	return c.nBase
+}
+
+// N returns total number of nodes
+func (c Config) N() int {
+	return c.n
+}
+
+func (c Config) ClientN() int {
+	return c.ClientNumber
+}
+
+func (c Config) NPerShard() int {
+	return c.n / c.ShardCount
+}
+
+// Load loads configuration from Configuration file in JSON format
+func (c *Config) Load() {
+	file, err := os.Open(filepath.Join(path, *configFile))
+	if err != nil {
+		log.Fatal(err)
+	}
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(c)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// load ips
+	ipFile, err := os.Open(filepath.Join(path, *ipsFile))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ipFile.Close()
+
+	scanner := bufio.NewScanner(ipFile)
+
+	s := 0
+	i := 1
+	for scanner.Scan() {
+		id := utils.NewNodeID(i)
+		// port := strconv.Itoa(3999 + i)
+		addr := "tcp://" + scanner.Text() + ":"
+		// portHTTP := strconv.Itoa(8069 + i)
+		// addrHTTP := "http://" + scanner.Text() + ":" + portHTTP
+		_, exist := c.Addrs[types.Shard(s)]
+		if !exist {
+			c.Addrs[types.Shard(s)] = make(map[types.NodeID]string)
+		}
+		c.Addrs[types.Shard(s)][id] = addr
+		s++
+		// c.HTTPAddrs[id] = addrHTTP
+		if s > c.ShardCount {
+			i++
+			s = 0
+		}
+	}
+
+	// for shard, addrs := range c.Addrs {
+	// 	for id, addr := range addrs {
+	// 		log.Debugf("Load config: shard %v id %v has address %v", shard, id, addr)
+	// 	}
+	// }
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println(err)
+	}
+
+	c.n = len(c.Addrs[types.Shard(s)-1])
+
+	baseip_file, err := os.Open(filepath.Join(path, *baseIpsFile))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer baseip_file.Close()
+
+	scanner2 := bufio.NewScanner(baseip_file)
+	i = 0
+	for scanner2.Scan() {
+		shard := types.Shard(i)
+		addr := scanner2.Text()
+		addrTCP := "tcp://" + addr + ":"
+		var portHTTP string
+		if i == 0 {
+			portHTTP = strconv.Itoa(7999)
+		} else if i > 0 && i <= c.ShardCount {
+			portHTTP = strconv.Itoa(8000 + i)
+		} else {
+			portHTTP = strconv.Itoa(8000)
+		}
+		addrHTTP := "http://" + addr + ":" + portHTTP
+		c.HTTPAddrs[utils.NewNodeID(i)] = addrHTTP
+
+		_, exist := c.Addrs[shard]
+		if !exist {
+			c.Addrs[shard] = make(map[types.NodeID]string)
+		}
+		c.Addrs[shard][utils.NewNodeID(0)] = addrTCP
+		i++
+	}
+}
+
+func (c Config) GetShardNumOfID(id types.NodeID) types.Shard {
+	if _, exist := c.Addrs[0][id]; exist { // base shard
+		return 0
+	}
+
+	return types.Shard((utils.Node(id)-1)/(c.NPerShard()) + 1)
+}
+
+func (c Config) IsByzantine(id types.NodeID) bool {
+	return c.ByzNo >= utils.Node(id)
+}
+
+func GetBetweenShardTimer(shard types.Shard) *time.Timer {
+	var timer *time.Timer
+	if shard%4 == 0 {
+		timer = time.NewTimer(time.Millisecond * time.Duration(GetConfig().Shard01Latency))
+	} else if shard%4 == 1 {
+		timer = time.NewTimer(time.Millisecond * time.Duration(GetConfig().Shard02Latency))
+	} else if shard%4 == 2 {
+		timer = time.NewTimer(time.Millisecond * time.Duration(GetConfig().Shard03Latency))
+	} else if shard%4 == 3 {
+		timer = time.NewTimer(time.Millisecond * time.Duration(GetConfig().Shard04Latency))
+	}
+	return timer
+}
