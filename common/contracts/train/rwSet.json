@@ -1,0 +1,27 @@
+[
+    {
+        "externalRweSet": [],
+        "function": "checkSeatAvailability()",
+        "functionSelector": "4a6e480e",
+        "readSet": [
+            "0"
+        ],
+        "writeSet": []
+    },
+    {
+        "externalRweSet": [],
+        "function": "bookTrain(address)",
+        "functionSelector": "87a362a4",
+        "readSet": [
+            "0"
+        ],
+        "writeSet": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5"
+        ]
+    }
+]

@@ -1,0 +1,35 @@
+[
+    {
+        "externalRweSet": [],
+        "function": "(address,address)",
+        "functionSelector": "",
+        "readSet": [],
+        "writeSet": []
+    },
+    {
+        "externalRweSet": [
+            {
+                "name": "4a6e480e",
+                "type": "execute"
+            },
+            {
+                "name": "0e424b2b",
+                "type": "execute"
+            },
+            {
+                "name": "87a362a4",
+                "type": "execute"
+            },
+            {
+                "name": "165fcb2d",
+                "type": "execute"
+            }
+        ],
+        "function": "bookTrainAndHotel()",
+        "functionSelector": "5710ddcd",
+        "readSet": [],
+        "writeSet": [
+            "0"
+        ]
+    }
+]

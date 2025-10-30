@@ -48,10 +48,6 @@ bin/deploy/macos/server
 
 AWSController/aws
 
-common/ca
-common/statedb
-common/contracts
-
 # AWS script
 *.id
 *.file

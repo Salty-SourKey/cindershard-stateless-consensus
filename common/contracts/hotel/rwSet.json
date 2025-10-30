@@ -1,0 +1,27 @@
+[
+    {
+        "externalRweSet": [],
+        "function": "checkRoomAvailability()",
+        "functionSelector": "0e424b2b",
+        "readSet": [
+            "0"
+        ],
+        "writeSet": []
+    },
+    {
+        "externalRweSet": [],
+        "function": "bookHotel(address)",
+        "functionSelector": "165fcb2d",
+        "readSet": [
+            "0"
+        ],
+        "writeSet": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5"
+        ]
+    }
+]
