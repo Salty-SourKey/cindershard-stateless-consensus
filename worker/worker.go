@@ -175,7 +175,7 @@ func (r *Replica) HandleWorkerConsensusPayload(bm blockchain.WorkerConsensusPayl
 // Generate a worker block using the received worker consensus payload,
 // and then propose (propagate) it to all other nodes
 func (r *Replica) ProposeWorkerBlock() {
-	ticker := time.NewTicker(800 * time.Millisecond)
+	ticker := time.NewTicker(2000 * time.Millisecond)
 	for range ticker.C {
 		payload_data := r.pd.GeneratePayload(config.Configuration.BlockSize)
 		if config.Configuration.Mode == "Change_AllCommittee" && r.State() == types.ALLCOMMITEEECHANGED {

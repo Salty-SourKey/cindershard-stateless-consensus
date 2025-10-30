@@ -125,8 +125,11 @@ func (pb *PBFT) CreateWorkerBlock(localExecutionSequence []*message.Transaction,
 	} else if pb.highQC.BlockHeight == pb.lastCreatedBlockQC.BlockHeight {
 		qc = <-pb.updatedQC
 	} else {
-		qc = pb.highQC
-		<-pb.updatedQC
+		tempQC := <-pb.updatedQC
+		for tempQC.BlockHeight < pb.highQC.BlockHeight {
+			tempQC = <-pb.updatedQC
+		}
+		qc = tempQC
 	}
 	log.Debugf("CreateWorkerBlock DONE %v %v ", qc.BlockHeight, pb.lastCreatedBlockQC.BlockHeight)
 
@@ -1005,7 +1008,6 @@ func (pb *PBFT) updateHighCQC(cqc *quorum.QC) {
 		pb.highCQC = cqc
 
 		pb.updatedQC <- cqc
-		log.Debugf("[%v] (updateHighCQC) updated highCQC to %v", pb.ID(), cqc.BlockHeight)
 	}
 }
 
