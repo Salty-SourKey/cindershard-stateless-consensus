@@ -71,7 +71,7 @@ func (bc *BlockChain) SetPartialState(keys, values, merkleProofKeys, merkleProof
 ```
 4. A node executes the transactions using the partial MPT and updates the resulting root hash for a subsequent consensus.
 
-# How to build
+## How to build
 
 1. Install [Go](https://golang.org/dl/).
 
@@ -96,7 +96,7 @@ bash deploy.sh
 ```
 bash runClient.sh
 ```
-6. Stop the client and the main.
+5. Stop the client and the main.
 ```
 bash stop.sh
 ```
